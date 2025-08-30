@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Deploys the foundational environment for the security remediation experiment.
+  Includes a VPC, S3 bucket, a target Security Group, and an IAM Role for the
+  remediation Lambda functions.
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: ExperimentVPC
+
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.10.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: ExperimentSubnet
+
+  TestS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "remediation-experiment-test-bucket-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Purpose
+          Value: Remediation-Experiment
+
+  TestSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for remediation experiment"
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Purpose
+          Value: Remediation-Experiment
+
+  RemediationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SecurityRemediationLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaRemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:DeleteBucketPolicy
+                Resource: !GetAtt TestS3Bucket.Arn
+              - Effect: Allow
+                Action:
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:DescribeSecurityGroups
+                Resource: '*'
+              - Effect: Allow
+                Action: config:PutEvaluations
+                Resource: '*'
+
+Outputs:
+  TestS3BucketName:
+    Description: The name of the S3 bucket for Scenario 1
+    Value: !Ref TestS3Bucket
+  TestSecurityGroupId:
+    Description: The ID of the Security Group for Scenario 2
+    Value: !GetAtt TestSecurityGroup.GroupId
+  RemediationLambdaRoleArn:
+    Description: The ARN of the IAM role for the Lambda functions
+    Value: !GetAtt RemediationLambdaExecutionRole.Arn
